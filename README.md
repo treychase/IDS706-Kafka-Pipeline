@@ -82,7 +82,7 @@ Producer → Apache Kafka → Consumer → PostgreSQL
 
 ### 1. Clone Repository
 ```bash
-git clone <your-repo-url>
+git clone <https://github.com/treychase/IDS706-Kafka-Pipeline>
 cd kafka_realtime_pipeline
 ```
 

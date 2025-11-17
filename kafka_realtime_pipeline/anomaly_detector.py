@@ -190,15 +190,16 @@ def store_anomaly(cursor, reading: dict, anomaly: dict):
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """
     
+    # Convert all values to native Python types (not numpy types)
     cursor.execute(insert_query, (
-        reading['sensor_id'],
-        reading['room_id'],
-        anomaly['type'],
-        round(anomaly['score'], 4),
-        reading['temperature'],
-        reading['humidity'],
-        reading['co2'],
-        reading['energy_consumption']
+        str(reading['sensor_id']),
+        str(reading['room_id']),
+        str(anomaly['type']),
+        float(round(anomaly['score'], 4)),
+        float(reading['temperature']),
+        float(reading['humidity']),
+        float(reading['co2']),
+        float(reading['energy_consumption'])
     ))
 
 

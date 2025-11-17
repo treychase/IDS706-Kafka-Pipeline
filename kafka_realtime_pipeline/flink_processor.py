@@ -1,22 +1,39 @@
 """
 Apache Flink Stream Processor for IoT Sensor Data
 Performs real-time windowed aggregations on sensor streams.
+
+Note: This implementation uses a simplified SQL-based aggregation by default.
+Full PyFlink integration requires Java 11+ and additional setup.
 """
 
 import json
 import logging
-from datetime import datetime
-from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
-from pyflink.common.serialization import SimpleStringSchema
-from pyflink.common.typeinfo import Types
-from pyflink.datastream.functions import MapFunction, AggregateFunction
-from pyflink.datastream.window import TumblingEventTimeWindows, Time
+import time
 import psycopg2
-from psycopg2.extras import execute_batch
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Try to import PyFlink (optional dependency)
+PYFLINK_AVAILABLE = False
+try:
+    from pyflink.datastream import StreamExecutionEnvironment
+    from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
+    from pyflink.common.serialization import SimpleStringSchema
+    from pyflink.common.typeinfo import Types
+    from pyflink.datastream.functions import MapFunction, AggregateFunction
+    from pyflink.datastream.window import TumblingEventTimeWindows, Time
+    PYFLINK_AVAILABLE = True
+    logger.info("PyFlink is available")
+except ImportError:
+    logger.info("PyFlink not available - using simplified aggregation")
+    # Define dummy base classes for type hints if PyFlink isn't available
+    class MapFunction:
+        pass
+    
+    class AggregateFunction:
+        pass
 
 
 class SensorReading:
@@ -36,130 +53,131 @@ class SensorReading:
         self.timestamp = data.get('timestamp')
 
 
-class JsonDeserializationFunction(MapFunction):
-    """Deserialize JSON sensor readings."""
-    def map(self, value):
-        try:
-            data = json.loads(value)
-            return (
-                data.get('building'),
-                data.get('floor'),
-                float(data.get('temperature', 0)),
-                float(data.get('humidity', 0)),
-                float(data.get('co2', 0)),
-                int(data.get('occupancy', 0)),
-                float(data.get('energy_consumption', 0)),
-                data.get('timestamp')
-            )
-        except Exception as e:
-            logger.error(f"Error deserializing: {e}")
-            return None
+if PYFLINK_AVAILABLE:
+    class JsonDeserializationFunction(MapFunction):
+        """Deserialize JSON sensor readings."""
+        def map(self, value):
+            try:
+                data = json.loads(value)
+                return (
+                    data.get('building'),
+                    data.get('floor'),
+                    float(data.get('temperature', 0)),
+                    float(data.get('humidity', 0)),
+                    float(data.get('co2', 0)),
+                    int(data.get('occupancy', 0)),
+                    float(data.get('energy_consumption', 0)),
+                    data.get('timestamp')
+                )
+            except Exception as e:
+                logger.error(f"Error deserializing: {e}")
+                return None
 
 
-class SensorAggregateFunction(AggregateFunction):
-    """
-    Aggregate function for computing statistics over time windows.
-    """
-    
-    def create_accumulator(self):
-        # (sum_temp, sum_humidity, sum_co2, sum_occupancy, sum_energy, count)
-        return (0.0, 0.0, 0.0, 0, 0.0, 0)
-    
-    def add(self, value, accumulator):
-        if value is None:
-            return accumulator
+    class SensorAggregateFunction(AggregateFunction):
+        """
+        Aggregate function for computing statistics over time windows.
+        """
         
-        building, floor, temp, humidity, co2, occupancy, energy, timestamp = value
-        
-        return (
-            accumulator[0] + temp,
-            accumulator[1] + humidity,
-            accumulator[2] + co2,
-            accumulator[3] + occupancy,
-            accumulator[4] + energy,
-            accumulator[5] + 1
-        )
-    
-    def get_result(self, accumulator):
-        count = accumulator[5]
-        if count == 0:
+        def create_accumulator(self):
+            # (sum_temp, sum_humidity, sum_co2, sum_occupancy, sum_energy, count)
             return (0.0, 0.0, 0.0, 0, 0.0, 0)
         
-        return (
-            round(accumulator[0] / count, 2),  # avg_temperature
-            round(accumulator[1] / count, 2),  # avg_humidity
-            round(accumulator[2] / count, 2),  # avg_co2
-            accumulator[3],                     # total_occupancy
-            round(accumulator[4], 2),           # total_energy
-            count                                # reading_count
-        )
-    
-    def merge(self, acc_a, acc_b):
-        return (
-            acc_a[0] + acc_b[0],
-            acc_a[1] + acc_b[1],
-            acc_a[2] + acc_b[2],
-            acc_a[3] + acc_b[3],
-            acc_a[4] + acc_b[4],
-            acc_a[5] + acc_b[5]
-        )
-
-
-class PostgresWriteFunction(MapFunction):
-    """Write aggregated results to PostgreSQL."""
-    
-    def open(self, runtime_context):
-        self.conn = psycopg2.connect(
-            dbname="kafka_db",
-            user="kafka_user",
-            password="kafka_password",
-            host="localhost",
-            port="5432"
-        )
-        self.conn.autocommit = True
+        def add(self, value, accumulator):
+            if value is None:
+                return accumulator
+            
+            building, floor, temp, humidity, co2, occupancy, energy, timestamp = value
+            
+            return (
+                accumulator[0] + temp,
+                accumulator[1] + humidity,
+                accumulator[2] + co2,
+                accumulator[3] + occupancy,
+                accumulator[4] + energy,
+                accumulator[5] + 1
+            )
         
-    def map(self, value):
-        try:
-            # value format: (building, floor, window_start, window_end, agg_results)
-            key, agg = value
-            building, floor = key
-            avg_temp, avg_humidity, avg_co2, total_occ, total_energy, count = agg
+        def get_result(self, accumulator):
+            count = accumulator[5]
+            if count == 0:
+                return (0.0, 0.0, 0.0, 0, 0.0, 0)
             
-            cursor = self.conn.cursor()
+            return (
+                round(accumulator[0] / count, 2),  # avg_temperature
+                round(accumulator[1] / count, 2),  # avg_humidity
+                round(accumulator[2] / count, 2),  # avg_co2
+                accumulator[3],                     # total_occupancy
+                round(accumulator[4], 2),           # total_energy
+                count                                # reading_count
+            )
+        
+        def merge(self, acc_a, acc_b):
+            return (
+                acc_a[0] + acc_b[0],
+                acc_a[1] + acc_b[1],
+                acc_a[2] + acc_b[2],
+                acc_a[3] + acc_b[3],
+                acc_a[4] + acc_b[4],
+                acc_a[5] + acc_b[5]
+            )
+
+
+    class PostgresWriteFunction(MapFunction):
+        """Write aggregated results to PostgreSQL."""
+        
+        def open(self, runtime_context):
+            self.conn = psycopg2.connect(
+                dbname="kafka_db",
+                user="kafka_user",
+                password="kafka_password",
+                host="localhost",
+                port="5432"
+            )
+            self.conn.autocommit = True
             
-            # Use current time as window markers (simplified)
-            now = datetime.now()
-            window_start = now
-            window_end = now
-            
-            insert_query = """
-                INSERT INTO sensor_aggregates (
+        def map(self, value):
+            try:
+                # value format: (building, floor, window_start, window_end, agg_results)
+                key, agg = value
+                building, floor = key
+                avg_temp, avg_humidity, avg_co2, total_occ, total_energy, count = agg
+                
+                cursor = self.conn.cursor()
+                
+                # Use current time as window markers (simplified)
+                now = datetime.now()
+                window_start = now
+                window_end = now
+                
+                insert_query = """
+                    INSERT INTO sensor_aggregates (
+                        window_start, window_end, building, floor,
+                        avg_temperature, avg_humidity, avg_co2,
+                        total_occupancy, total_energy, reading_count
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                
+                cursor.execute(insert_query, (
                     window_start, window_end, building, floor,
-                    avg_temperature, avg_humidity, avg_co2,
-                    total_occupancy, total_energy, reading_count
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            
-            cursor.execute(insert_query, (
-                window_start, window_end, building, floor,
-                avg_temp, avg_humidity, avg_co2,
-                total_occ, total_energy, count
-            ))
-            
-            logger.info(f"✓ Stored aggregate for {building}/{floor}: "
-                       f"{count} readings, avg_temp={avg_temp}°C, total_energy={total_energy}kWh")
-            
-            cursor.close()
-            return value
-            
-        except Exception as e:
-            logger.error(f"Error writing to PostgreSQL: {e}")
-            return value
-    
-    def close(self):
-        if hasattr(self, 'conn'):
-            self.conn.close()
+                    avg_temp, avg_humidity, avg_co2,
+                    total_occ, total_energy, count
+                ))
+                
+                logger.info(f"✓ Stored aggregate for {building}/{floor}: "
+                           f"{count} readings, avg_temp={avg_temp}°C, total_energy={total_energy}kWh")
+                
+                cursor.close()
+                return value
+                
+            except Exception as e:
+                logger.error(f"Error writing to PostgreSQL: {e}")
+                return value
+        
+        def close(self):
+            if hasattr(self, 'conn'):
+                self.conn.close()
 
 
 def run_flink_processor():
@@ -167,6 +185,14 @@ def run_flink_processor():
     Main Flink streaming job with tumbling windows.
     Aggregates sensor data every 1 minute by building and floor.
     """
+    
+    if not PYFLINK_AVAILABLE:
+        print("[Flink] ⚠️  PyFlink is not installed")
+        print("[Flink] To use full Flink integration:")
+        print("[Flink]   1. Install Java 11+")
+        print("[Flink]   2. pip install apache-flink")
+        print("[Flink] Using simplified aggregation instead...")
+        return None
     
     print("[Flink] 🚀 Starting Apache Flink Stream Processor")
     print("[Flink] Configuring streaming environment...")
@@ -246,72 +272,96 @@ def run_flink_processor():
         print("\n[Flink] 🛑 Shutting down gracefully...")
 
 
-if __name__ == "__main__":
-    # Note: This is a simplified version for demonstration
-    # In production, you would use proper Flink deployment with watermarks,
-    # event time processing, and proper windowing functions
-    
-    print("[Flink] ⚠️  Note: Full Flink integration requires PyFlink installation")
-    print("[Flink] For demo purposes, using simplified batch aggregation...")
-    print()
-    
-    # Simplified aggregation for demo
-    import time
-    import psycopg2
+def run_simplified_aggregator():
+    """
+    Simplified aggregation service that doesn't require PyFlink.
+    Uses SQL-based aggregation directly on PostgreSQL.
+    """
     
     print("[Flink Alternative] 🔄 Starting simplified aggregation service...")
+    print("[Flink Alternative] This provides similar functionality without PyFlink/Java requirements")
+    print()
     
-    conn = psycopg2.connect(
-        dbname="kafka_db",
-        user="kafka_user",
-        password="kafka_password",
-        host="localhost",
-        port="5432"
-    )
-    
-    while True:
+    try:
+        conn = psycopg2.connect(
+            dbname="kafka_db",
+            user="kafka_user",
+            password="kafka_password",
+            host="localhost",
+            port="5432"
+        )
+        
+        print("[Flink Alternative] ✓ Connected to PostgreSQL")
+        print("[Flink Alternative] 📊 Aggregating sensor data every 60 seconds...")
+        print()
+        
+        while True:
+            try:
+                cursor = conn.cursor()
+                
+                # Aggregate last minute of data
+                query = """
+                    INSERT INTO sensor_aggregates (
+                        window_start, window_end, building, floor,
+                        avg_temperature, avg_humidity, avg_co2,
+                        total_occupancy, total_energy, reading_count
+                    )
+                    SELECT 
+                        NOW() - INTERVAL '1 minute' as window_start,
+                        NOW() as window_end,
+                        building,
+                        floor,
+                        ROUND(AVG(temperature)::numeric, 2) as avg_temperature,
+                        ROUND(AVG(humidity)::numeric, 2) as avg_humidity,
+                        ROUND(AVG(co2)::numeric, 2) as avg_co2,
+                        SUM(occupancy) as total_occupancy,
+                        ROUND(SUM(energy_consumption)::numeric, 2) as total_energy,
+                        COUNT(*) as reading_count
+                    FROM sensor_readings
+                    WHERE timestamp >= NOW() - INTERVAL '1 minute'
+                    GROUP BY building, floor
+                    HAVING COUNT(*) > 0;
+                """
+                
+                cursor.execute(query)
+                rows_inserted = cursor.rowcount
+                conn.commit()
+                
+                if rows_inserted > 0:
+                    print(f"[Flink Alternative] ✓ Aggregated {rows_inserted} building/floor combinations")
+                
+                cursor.close()
+                time.sleep(60)  # Run every minute
+                
+            except KeyboardInterrupt:
+                print("\n[Flink Alternative] 🛑 Shutting down...")
+                break
+            except Exception as e:
+                print(f"[Flink Alternative ERROR] {e}")
+                time.sleep(60)
+        
+        conn.close()
+        
+    except Exception as e:
+        print(f"[Flink Alternative ERROR] Failed to connect to database: {e}")
+        print("[Flink Alternative] Make sure PostgreSQL is running (docker-compose up -d)")
+
+
+if __name__ == "__main__":
+    # Check if PyFlink is available
+    if PYFLINK_AVAILABLE:
+        print("[Flink] ⚠️  Note: Full PyFlink detected but requires Java 11+")
+        print("[Flink] If you encounter Java errors, the simplified version will be used")
+        print()
         try:
-            cursor = conn.cursor()
-            
-            # Aggregate last minute of data
-            query = """
-                INSERT INTO sensor_aggregates (
-                    window_start, window_end, building, floor,
-                    avg_temperature, avg_humidity, avg_co2,
-                    total_occupancy, total_energy, reading_count
-                )
-                SELECT 
-                    NOW() - INTERVAL '1 minute' as window_start,
-                    NOW() as window_end,
-                    building,
-                    floor,
-                    ROUND(AVG(temperature)::numeric, 2) as avg_temperature,
-                    ROUND(AVG(humidity)::numeric, 2) as avg_humidity,
-                    ROUND(AVG(co2)::numeric, 2) as avg_co2,
-                    SUM(occupancy) as total_occupancy,
-                    ROUND(SUM(energy_consumption)::numeric, 2) as total_energy,
-                    COUNT(*) as reading_count
-                FROM sensor_readings
-                WHERE timestamp >= NOW() - INTERVAL '1 minute'
-                GROUP BY building, floor
-                HAVING COUNT(*) > 0;
-            """
-            
-            cursor.execute(query)
-            rows_inserted = cursor.rowcount
-            conn.commit()
-            
-            if rows_inserted > 0:
-                print(f"[Flink Alternative] ✓ Aggregated {rows_inserted} building/floor combinations")
-            
-            cursor.close()
-            time.sleep(60)  # Run every minute
-            
-        except KeyboardInterrupt:
-            print("\n[Flink Alternative] 🛑 Shutting down...")
-            break
+            run_flink_processor()
         except Exception as e:
-            print(f"[Flink Alternative ERROR] {e}")
-            time.sleep(60)
-    
-    conn.close()
+            print(f"\n[Flink ERROR] {e}")
+            print("[Flink] Falling back to simplified aggregation...")
+            print()
+            run_simplified_aggregator()
+    else:
+        print("[Flink] ⚠️  PyFlink not installed - using simplified aggregation")
+        print("[Flink] This provides the same functionality without requiring Java")
+        print()
+        run_simplified_aggregator()

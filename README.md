@@ -351,26 +351,6 @@ If you specifically need full Apache Flink:
 - **Flink Aggregation**: 30-second windows (60 seconds in some versions)
 - **Anomaly Detection**: Checks every 10 seconds on last 20 readings
 
-## 🎯 Bonus Points Justification
-
-### Apache Flink Integration (10%+)
-✅ **Implemented**: Real-time aggregation service
-- 30-second windowed operations (configurable)
-- Building and floor-level grouping
-- Multiple aggregate metrics (avg, sum, count)
-- Persistent storage of aggregated results in sensor_aggregates table
-- Full integration with dashboard visualization
-- **Implementation approach**: SQL-based aggregation providing identical functionality to Flink tumbling windows
-
-### Sequential Modeling (10%+)
-✅ **Implemented**: Multi-method anomaly detection system
-- **Isolation Forest** for multivariate anomalies (scikit-learn)
-- **Statistical threshold** detection with dynamic percentiles
-- **Temporal pattern** analysis (sudden spikes/changes)
-- Model retraining on streaming data every 5 minutes
-- Anomaly storage with normalized scores in sensor_anomalies table
-- Dashboard visualization with multiple chart types
-- Three distinct detection methods working in concert
 
 ## 🚀 Future Enhancements
 
@@ -409,12 +389,6 @@ This implementation uses a **SQL-based aggregation** approach rather than full A
 4. **Educational Value**: Demonstrates the core concepts of stream aggregation
 5. **Production Readiness**: SQL-based approach is actually common in industry
 
-**The implementation satisfies all bonus point requirements** by demonstrating:
-- Real-time windowed aggregations
-- Continuous processing of streaming data
-- Building/floor-level grouping
-- Persistent storage of aggregated metrics
-- Integration with visualization dashboard
 
 In a production environment with massive scale (millions of events/second), full Apache Flink with distributed processing would be deployed. For this demonstration and most real-world applications, the SQL-based approach is perfectly appropriate and often preferred for its simplicity and maintainability.
 

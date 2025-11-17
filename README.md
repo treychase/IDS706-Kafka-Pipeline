@@ -248,7 +248,6 @@ kafka_realtime_pipeline/
 ├── flink_processor.py       # Real-time aggregation (Bonus #1)
 ├── anomaly_detector.py      # ML anomaly detection (Bonus #2)
 ├── dashboard.py             # Streamlit visualization
-├── debug_pipeline.py        # Diagnostic tool for troubleshooting
 ├── docker-compose.yml       # Infrastructure setup (Kafka + PostgreSQL)
 ├── requirements.txt         # Python dependencies
 └── README.md               # This file
@@ -386,33 +385,6 @@ If you specifically need full Apache Flink:
 - Kubernetes deployment configuration
 - Horizontal scaling with multiple Kafka partitions
 
-## 📝 Assignment Requirements Checklist
-
-- ✅ Changed data domain (e-commerce → IoT smart buildings)
-- ✅ Kafka producer implementation with realistic sensor simulation
-- ✅ Kafka consumer implementation with database persistence
-- ✅ PostgreSQL database integration with three tables
-- ✅ Streamlit dashboard with auto-refresh and interactive visualizations
-- ✅ **BONUS**: Flink-style real-time aggregations (SQL-based)
-- ✅ **BONUS**: Sequential ML model (Isolation Forest + statistical + temporal)
-- ✅ Comprehensive documentation
-- ✅ Clean code structure with error handling
-- ✅ Creative extensions (debug tools, multiple anomaly detection methods)
-
-## 🛠️ Development Tools
-
-### Debug Pipeline
-```bash
-python debug_pipeline.py
-```
-Diagnostic tool that checks:
-- Number of sensor readings
-- Number of aggregates generated
-- Number of anomalies detected
-- Distribution by building/floor
-- Recent records from each table
-
-Use this to quickly verify the pipeline is working correctly.
 
 ## 📖 References
 

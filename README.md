@@ -1,5 +1,7 @@
 # Real-Time IoT Smart Building Monitoring System
 
+## Author: Trey Chase
+
 A comprehensive real-time data streaming pipeline using **Apache Kafka**, **PostgreSQL**, and **Streamlit** for monitoring smart building IoT sensors. This project demonstrates advanced stream processing with **Apache Flink-style** aggregation and **Sequential Machine Learning** for anomaly detection.
 
 ## 🏗️ Architecture Overview
@@ -421,11 +423,6 @@ Use this to quickly verify the pipeline is working correctly.
 - [PostgreSQL Time-Series Best Practices](https://www.postgresql.org/docs/)
 - [Kafka Python Client](https://kafka-python.readthedocs.io/)
 
-## 👤 Author
-
-Created for IDS706 - Week 12 Mini Assignment  
-Duke University - Master of Engineering in AI
-
 ---
 
 ## 📌 Important Notes
@@ -455,4 +452,3 @@ The `anomaly_detector.py` explicitly converts numpy types to Python types before
 
 ---
 
-**Ready to run?** Just follow the setup steps above and you'll have a complete real-time IoT monitoring system running in minutes! 🚀
